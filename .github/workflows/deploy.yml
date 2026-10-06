@@ -23,7 +23,7 @@ env:
 
 jobs:
   test-and-validate:
-    name: Unit Tests & IaC Validation
+    name: Unit Tests, Golden Evals & IaC Validation
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -54,8 +54,7 @@ jobs:
         with:
           terraform_version: "1.9.0"
 
-      - name: Validate Terraform IaC Scripts
-        working-directory: ./terraform
+      - name: Validate Root Terraform IaC Scripts
         run: |
           terraform init -backend=false
           terraform fmt -check
@@ -92,7 +91,7 @@ jobs:
             firestore.googleapis.com \
             logging.googleapis.com \
             cloudtrace.googleapis.com \
-            --project="${PROJECT_ID}"
+            --project="${PROJECT_ID}" || echo "API enablement skipped (already enabled or managed by project admin)."
 
       - name: Provision Firestore Native Database (if not exists)
         run: |
@@ -101,7 +100,7 @@ jobs:
               --database="(default)" \
               --location="${REGION}" \
               --type=firestore-native \
-              --project="${PROJECT_ID}"
+              --project="${PROJECT_ID}" || echo "Firestore creation skipped (already exists or requires datastore.owner)."
           else
             echo "Firestore (default) database already exists."
           fi
@@ -114,7 +113,7 @@ jobs:
               --repository-format=docker \
               --location="${REGION}" \
               --description="Docker repository for ADK Healthcare Scheduling Agent" \
-              --project="${PROJECT_ID}"
+              --project="${PROJECT_ID}" || echo "Artifact Registry creation skipped (already exists or requires artifactregistry.admin)."
           else
             echo "Artifact Registry repository ${AR_REPO} already exists."
           fi

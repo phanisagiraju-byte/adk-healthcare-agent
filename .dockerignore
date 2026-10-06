@@ -6,4 +6,6 @@ __pycache__/
 .git/
 .github/
 terraform/
+*.tf
+.terraform/
 tests/

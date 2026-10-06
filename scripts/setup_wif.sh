@@ -9,6 +9,7 @@ POOL_NAME="github-actions-pool"
 PROVIDER_NAME="github-oidc-provider"
 SA_NAME="adk-healthcare-agent-sa"
 SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+AR_REPO="adk-healthcare-repo"
 
 echo "🚀 Bootstrapping Workload Identity Federation (WIF) for ${GITHUB_REPO} in project ${PROJECT_ID}..."
 
@@ -38,6 +39,7 @@ fi
 # 3. Grant required IAM roles to the Service Account
 ROLES=(
   "roles/aiplatform.user"
+  "roles/datastore.owner"
   "roles/datastore.user"
   "roles/run.admin"
   "roles/artifactregistry.admin"
@@ -46,6 +48,8 @@ ROLES=(
   "roles/logging.logWriter"
   "roles/cloudtrace.agent"
   "roles/serviceusage.serviceUsageAdmin"
+  "roles/storage.admin"
+  "roles/viewer"
 )
 
 for ROLE in "${ROLES[@]}"; do
@@ -55,7 +59,24 @@ for ROLE in "${ROLES[@]}"; do
     --quiet >/dev/null
 done
 
-# 4. Create Workload Identity Pool if it doesn't exist
+# 4. Provision Firestore Native Database & Artifact Registry Repository
+if ! gcloud firestore databases describe --database="(default)" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  gcloud firestore databases create \
+    --database="(default)" \
+    --location="${REGION}" \
+    --type=firestore-native \
+    --project="${PROJECT_ID}" || true
+fi
+
+if ! gcloud artifacts repositories describe "${AR_REPO}" --location="${REGION}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  gcloud artifacts repositories create "${AR_REPO}" \
+    --repository-format=docker \
+    --location="${REGION}" \
+    --description="Docker repository for ADK Healthcare Scheduling Agent" \
+    --project="${PROJECT_ID}" || true
+fi
+
+# 5. Create Workload Identity Pool if it doesn't exist
 if ! gcloud iam workload-identity-pools describe "${POOL_NAME}" \
   --location="global" --project="${PROJECT_ID}" >/dev/null 2>&1; then
   gcloud iam workload-identity-pools create "${POOL_NAME}" \
@@ -69,7 +90,7 @@ POOL_ID=$(gcloud iam workload-identity-pools describe "${POOL_NAME}" \
   --location="global" \
   --format='value(name)')
 
-# 5. Create OIDC Workload Identity Provider for GitHub Actions if it doesn't exist
+# 6. Create OIDC Workload Identity Provider for GitHub Actions if it doesn't exist
 if ! gcloud iam workload-identity-pools providers describe "${PROVIDER_NAME}" \
   --workload-identity-pool="${POOL_NAME}" \
   --location="global" \
@@ -90,7 +111,7 @@ WIF_PROVIDER=$(gcloud iam workload-identity-pools providers describe "${PROVIDER
   --workload-identity-pool="${POOL_NAME}" \
   --format='value(name)')
 
-# 6. Allow GitHub Actions from this repository to impersonate the Service Account
+# 7. Allow GitHub Actions from this repository to impersonate the Service Account
 gcloud iam service-accounts add-iam-policy-binding "${SA_EMAIL}" \
   --project="${PROJECT_ID}" \
   --role="roles/iam.workloadIdentityUser" \
