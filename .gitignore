@@ -2,3 +2,7 @@
 key.json
 venv/
 __pycache__/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars

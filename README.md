@@ -15,10 +15,16 @@ This agent uses a **Hill Climbing Orchestration Pattern** (Evaluator-Optimizer l
 This project is built using Object-Oriented Design (OOD) principles, ensuring separation of concerns, dependency injection, and high extensibility.
 
 *   `main.py`: The application entry point. Initializes OpenTelemetry distributed tracing, wires the ADK `App` with native `EventsCompactionConfig` into `InMemoryRunner`, hydrates/consolidates state with Google Cloud Firestore, and wraps execution in `tenacity` exponential backoff retries (`safe_process_request`).
+*   `server.py`: FastAPI HTTP service exposing `/health` and `/schedule` endpoints for Google Cloud Run deployment.
 *   `workflow.py`: Contains the Orchestration logic (`SequentialAgent` and `LoopAgent`), out-of-the-box ADK Context Compaction configuration (`create_compacting_healthcare_app` using `EventsCompactionConfig` and `LlmEventSummarizer`), and asynchronous state consolidation triggers.
 *   `agents.py`: LLM configurations (`Gemini` with `HttpRetryOptions`), tool lifecycle callbacks, and prompt instructions for the Worker and Critic agents.
 *   `tools.py`: Backend enterprise capabilities exposed as ADK `FunctionTool` objects, backed by strict Pydantic input schemas (`CheckAvailabilityInput`, `BookAppointmentInput`), Firestore async persistence (`background_save_state`), and graceful `try/except` error recovery.
 *   `observability.py`: Structured JSON logging (`python-json-logger`), PII/PHI redaction (`redact_pii`), Intent vs. Outcome tracking, and OpenTelemetry span callbacks (`TracingObservabilityCallback`).
+*   `Dockerfile`: Non-root production container image (`python:3.13-slim`) serving `server:app` via Uvicorn on port `8080`.
+*   `terraform/`: Declarative Infrastructure as Code (IaC) definitions for Cloud Run v2, Firestore Native DB, Artifact Registry, least-privilege IAM Service Account, and Workload Identity Federation (WIF).
+*   `scripts/setup_wif.sh`: Automated `gcloud` bootstrap script for Workload Identity Federation (keyless OIDC authentication from GitHub Actions).
+*   `.github/workflows/deploy.yml`: Automated CI/CD pipeline running unit tests, Terraform validation, and `gcloud` cloud provisioning + Cloud Run deployment via WIF.
+*   `tests/test_agent.py`: Automated unit test suite validating tool JSON schemas, error recovery, PII redaction, Firestore async persistence, and ADK compaction/retry settings.
 
 ---
 
@@ -53,41 +59,55 @@ Instead of a simple single-pass ReAct loop, this system uses a fault-tolerant **
 *   **Intent vs. Outcome Telemetry:** Every tool execution logs an `"Agent Tool Invocation Intent"` event (`intent`, `target_tool`, `session_id`) prior to invocation and an `"Agent Tool Invocation Outcome"` event (`outcome: "success" | "failure"`, `result_summary`, `session_id`) upon completion.
 *   **OpenTelemetry Distributed Tracing:** Configures `TracerProvider` and `SimpleSpanProcessor(ConsoleSpanExporter())` (`adk.healthcare.tracer`), creating spans around request processing, Firestore operations, agent execution, and tool calls.
 
+### 5. Infrastructure as Code (Terraform) & Keyless CI/CD (Workload Identity Federation + GitHub Actions)
+**Location:** `terraform/`, `scripts/setup_wif.sh`, `Dockerfile`, and `.github/workflows/deploy.yml`
+*   **Keyless Authentication (WIF):** Uses Workload Identity Federation (`google-github-actions/auth@v2`) so GitHub Actions authenticates to Google Cloud via OIDC without storing long-lived service account JSON keys.
+*   **Automated Cloud Provisioning & Deployment:** On push to `main`, GitHub Actions runs unit tests, validates Terraform scripts, enables required GCP APIs, ensures Firestore and Artifact Registry exist, builds and pushes the non-root Docker image, and deploys the service to Google Cloud Run.
+
 ---
 
-## 🚀 How to Run the Project
-
-### Prerequisites
-*   A gLinux/Debian environment (like Jetski or Cloudtop).
-*   Python 3.13 installed (with the `python3.13-venv` package).
-*   A Google Cloud Project with the **Vertex AI API** and **Cloud Firestore API** enabled.
-
-### 1. Set Up the Environment
-Clone the repository and navigate into the project folder. Then, create and activate a virtual environment:
+## 🚀 How to Run Locally
 
 ```bash
-# Create the virtual environment
+# 1. Create and activate the virtual environment
 python3 -m venv venv
-
-# Activate it
 source venv/bin/activate
 
-# Install the Google Agent Development Kit and dependencies
+# 2. Install dependencies
 pip install -r requirements.txt
+
+# 3. Run unit tests
+python -m unittest discover -s tests -v
+
+# 4. Run the agent workflow
+python main.py
 ```
 
-### 2. Configure Vertex AI Environment Variables
-Create a `.env` file in the root directory with your Google Cloud project settings (note that `gemini-3.6-flash` is served on the `global` or `us` multi-region endpoint):
+---
 
-```env
-GOOGLE_GENAI_USE_VERTEXAI="TRUE"
-GOOGLE_CLOUD_PROJECT="<YOUR_PROJECT_ID>"
-GOOGLE_CLOUD_LOCATION="global"
-```
+## ☁️ How to Deploy with Workload Identity Federation & GitHub Actions
 
-### 3. Execute the Application
-Run the main entry point:
+### Step 1: Bootstrap Workload Identity Federation (One-Time Setup)
+From a terminal authenticated with `gcloud` (`gcloud auth login`), run:
 
 ```bash
-python main.py
+./scripts/setup_wif.sh
+```
+
+This script enables the required APIs, creates the least-privilege service account (`adk-healthcare-agent-sa`), creates the Workload Identity Pool & GitHub OIDC Provider scoped to `phanisagiraju-byte/adk-healthcare-agent`, and prints two values:
+*   `WIF_PROVIDER`
+*   `WIF_SERVICE_ACCOUNT`
+
+### Step 2: Add GitHub Repository Secrets
+In your GitHub repository (`Settings` -> `Secrets and variables` -> `Actions` -> `New repository secret`), add:
+*   `WIF_PROVIDER`: The full provider resource path output by `setup_wif.sh`
+*   `WIF_SERVICE_ACCOUNT`: `adk-healthcare-agent-sa@agenticsetup-510220.iam.gserviceaccount.com`
+
+### Step 3: Push to `main`
+Push your changes to trigger the `.github/workflows/deploy.yml` pipeline:
+
+```bash
+git add .
+git commit -m "Phase 3: Add Terraform IaC, Dockerfile, WIF setup, and GitHub Actions CI/CD"
+git push origin main
 ```
