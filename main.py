@@ -5,7 +5,6 @@ import warnings
 from typing import Any, Dict
 from dotenv import load_dotenv
 from google.adk.apps.app import App, EventsCompactionConfig
-from google.adk.apps.llm_event_summarizer import LlmEventSummarizer
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 from opentelemetry import trace
@@ -13,6 +12,13 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from agents import (
+    CriticEvaluatorLlm,
+    create_evaluator_agent,
+    create_execution_model,
+    create_reasoning_model,
+    create_scheduler_agent,
+)
 from observability import (
     TracingObservabilityCallback,
     logger,
@@ -36,6 +42,12 @@ if not isinstance(trace.get_tracer_provider(), TracerProvider):
     trace.set_tracer_provider(provider)
 tracer = trace.get_tracer("adk.healthcare.tracer")
 
+# Strategic Model Routing:
+# 1. Fast, ultra-low-cost Flash-Lite model for high-frequency tool calling & routing
+execution_model = create_execution_model()
+# 2. Dedicated CriticEvaluatorLlm model class for high-accuracy Critic verification
+reasoning_model: CriticEvaluatorLlm = create_reasoning_model()
+
 
 class HealthcareAgentApp:
     """Main Application class for the Healthcare Agent using ADK's native App and EventsCompactionConfig."""
@@ -44,6 +56,12 @@ class HealthcareAgentApp:
         # Initialize dependencies (Callbacks)
         self.callbacks = [TracingObservabilityCallback()]
         self.app_name = "adk_healthcare_app"
+
+        # Expose strategically routed models and agents
+        self.execution_model = execution_model
+        self.reasoning_model = reasoning_model
+        self.scheduler_agent = create_scheduler_agent(self.callbacks)
+        self.critic_agent = create_evaluator_agent(self.callbacks)
 
         # Build the ADK App with out-of-the-box EventsCompactionConfig and LlmEventSummarizer
         self.adk_app: App = create_compacting_healthcare_app(

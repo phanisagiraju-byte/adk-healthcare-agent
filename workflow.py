@@ -86,7 +86,7 @@ def create_compacting_healthcare_app(
     """Factory that wraps the Hill Climbing workflow in an ADK App with out-of-the-box Context Compaction."""
     root_agent = create_hill_climbing_workflow(callbacks)
 
-    summarization_llm = _create_resilient_model("gemini-3.6-flash")
+    summarization_llm = _create_resilient_model("gemini-3.5-flash-lite")
     summarizer = LlmEventSummarizer(llm=summarization_llm)
 
     compaction_config = EventsCompactionConfig(

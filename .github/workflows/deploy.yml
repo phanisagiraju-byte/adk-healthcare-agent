@@ -40,13 +40,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Automated Unit Tests
+      - name: Run Automated Unit Tests & Golden Dataset Evaluations
         env:
           GOOGLE_GENAI_USE_VERTEXAI: "TRUE"
           GOOGLE_CLOUD_PROJECT: ${{ env.PROJECT_ID }}
           GOOGLE_CLOUD_LOCATION: ${{ env.VERTEX_LOCATION }}
         run: |
           python -m unittest discover -s tests -v
+          python eval_suite.py
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3

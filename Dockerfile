@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # Copy application source code
-COPY observability.py tools.py agents.py workflow.py main.py server.py ./
+COPY observability.py tools.py agents.py workflow.py main.py server.py eval_suite.py ./
 
 # Drop privileges to non-root user
 RUN chown -R appuser:appgroup /app

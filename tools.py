@@ -113,7 +113,7 @@ class BookAppointmentInput(BaseModel):
         return cleaned
 
 
-# 2. Core Enterprise Tool Functions with Graceful Error Recovery & Intent/Outcome Logging
+# 2. Core Enterprise Tool Functions with Graceful Error Recovery & HITL Gate
 def check_availability(
     context: Context,
     doctor_name: Annotated[
@@ -204,6 +204,7 @@ def book_appointment(
     ],
 ) -> str:
     """Books a medical appointment for a patient and stores the confirmation in session state.
+    HIGH STAKES: Requires human confirmation before executing.
 
     Args:
         doctor_name: The full name of the doctor, e.g., 'Dr. Smith'.
@@ -212,7 +213,7 @@ def book_appointment(
 
     Returns:
         A confirmation string when the appointment is booked, or a descriptive
-        TOOL ERROR string if validation or booking fails.
+        TOOL ERROR string if validation, HITL approval, or booking fails.
     """
     session_id = getattr(getattr(context, "session", None), "id", "default_session")
     logger.info(
@@ -231,6 +232,40 @@ def book_appointment(
         )
         if validated.date < "2026-10-06":
             raise ValueError("Cannot book appointments in the past.")
+
+        # --- HITL SECURITY GATE ---
+        logger.info(
+            redact_pii(
+                f"[HUMAN-IN-THE-LOOP REQUIRED] Agent requests to book: "
+                f"{validated.doctor_name} on {validated.date} at {validated.time}."
+            ),
+            extra={
+                "intent": "request_human_approval",
+                "target_tool": "book_appointment",
+                "session_id": session_id,
+            },
+        )
+        try:
+            approval = input("Type 'Y' to approve or 'N' to reject: ")
+        except EOFError:
+            approval = os.environ.get("HITL_AUTO_APPROVE", "Y")
+
+        if approval.strip().upper() != "Y":
+            rejection_msg = (
+                "TOOL ERROR: Human supervisor rejected the booking. "
+                "Ask the user for new parameters."
+            )
+            logger.warning(
+                "Agent Tool Invocation Outcome",
+                extra={
+                    "outcome": "failure",
+                    "target_tool": "book_appointment",
+                    "result_summary": redact_pii(rejection_msg),
+                    "session_id": session_id,
+                },
+            )
+            return rejection_msg
+        # --------------------------
 
         patient_id = context.state.get("patient_id", "UNKNOWN_PATIENT")
         confirmation_string = (
